@@ -1,0 +1,84 @@
+# ============================================================
+# PricePulse AI - Docker Compose
+# Author: SALIM Ayoub (DevOps/Reporting)
+# ============================================================
+
+version: "3.9"
+
+services:
+
+  pricepulse-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: pricepulse-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - reports_data:/app/reports
+      - logs_data:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - pricepulse-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: pricepulse-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - pricepulse-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+ 
+  health-reporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: pricepulse-reporter
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - RUN_MODE=reporter
+    volumes:
+      - reports_data:/app/reports
+      - logs_data:/app/logs
+    depends_on:
+      pricepulse-api:
+        condition: service_healthy
+    networks:
+      - pricepulse-net
+    command: ["python", "-m", "app.reporting.health_reporter", "--schedule"]
+
+
+volumes:
+  redis_data:
+  reports_data:
+  logs_data:
+
+
+networks:
+  pricepulse-net:
+    driver: bridge
